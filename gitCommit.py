@@ -46,7 +46,7 @@ try:
 
     git_push()
     print("Successed.")
-    time.sleep(3)
+    time.sleep(10)
     
 except Exception as e:
     print(e)
