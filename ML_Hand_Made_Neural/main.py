@@ -5,19 +5,14 @@ def relu(x):
         return x
     else:
         return 0
-
-
 activation_func = np.vectorize(relu)
-
 
 def derivative(x):
     if x > 0:
         return 1
     else:
         return 0
-
 derivative_func = np.vectorize(derivative)
-
 
 class Weight:
     def __init__(self, m, n):
@@ -25,7 +20,7 @@ class Weight:
         self.mu = 0  # 0.5
         self.m = m
         self.n = n
-        self.val = self.sigma * np.random.randn(m + 1, n) + self.mu
+        self.val = self.sigma * np.random.randn(m, n) + self.mu
 
     def normalize(self):
         self.val = self.val / self.val.sum()
@@ -34,19 +29,25 @@ class Bias:
     def __init__(self, n):
         self.val = np.random.randn(1, n)
 
-
 class Layer:
     def __init__(self, n, id=None, output_ind=False):
-        self.val = None
         self.id = id
+
+        self.input_val = None
+        self.output_val = None
+
         self.input_weight = None
         self.output_weight = None
+
         self.input_bias = None
         self.output_bias = None
+
         self.pre_layer = None
         self.next_layer = None
+
         self.n = n
         self.delta_weight = None
+        self.delta_bias = None
         self.output_ind = output_ind
 
     def full_connect(self, other):
@@ -54,6 +55,7 @@ class Layer:
         n = other.n
         weight = Weight(m, n)
         bias = Bias(n)
+
         self.output_weight = weight
         self.output_bias = bias
         other.input_weight = weight
@@ -69,51 +71,41 @@ class Layer:
         print()
 
     def pull_in(self, input_list):
-        self.val = np.array([input_list, ])
+        self.input_val = np.array([input_list, ])
 
     def forwarding(self):
-        val = self.val
-        val = np.append(val, [1])
-        print('val:', val.shape)
-        print('weight:', self.output_weight.val.shape)
-        val = val.dot(self.output_weight.val) + self.bias.val
+        # val for next layer
+        self.output_val = self.input_val.dot(self.output_weight.val) + self.output_bias.val
 
-        try:
-            if self.next_layer:
-                if not self.next_layer.output_ind:
-                    val = activation_func(val)
-                    self.next_layer.val = val
-                else:
-                    self.next_layer.val = val
-        except:
+        if self.next_layer:
+            if self.next_layer.next_layer:
+                self.next_layer.input_val = activation_func(self.output_val)
+            else:
+                self.next_layer.input_val = self.output_val
+        else:
             raise
 
+        return
+
     def backwarding(self, error_term, learning_rate):
-        pre = self.pre_layer
-        # K1 = pre.output_weight.val
-        # while (pre.pre_layer):
-        #     pre = pre.pre_layer
-        #     K1 = pre.output_weight.val.dot(K1)
-        #
-        # pre_val = np.append(pre.val, [1])
-        # K1 = pre_val.dot(K1)
-
         # Input
-        K1 = pre.val
+        K1 = self.input_val
 
-        # Chain
-        next_layer = self.next_layer
-        if next_layer.output_weight:
-            K2 = next_layer.output_weight.val
-            while (next_layer.next_layer.output_weight):
-                next_layer = next_layer.next_layer
-                K2 = K2.dot(next_layer.output_weight.val)
+        # Chain  Skip current weight
+        cur_layer = self.next_layer
+        if cur_layer.output_weight:
+            K2 = cur_layer.output_weight.val
+            while (cur_layer.next_layer.output_weight):
+                cur_layer = cur_layer.next_layer
+                g_val = cur_layer.input_val # g(w*x+b)
+                derived_g_by_y = derivative_func(g_val) # g'(w*x+b)
+                derived_y_by_x = cur_layer.output_weight.val # f'(w,x,b)
+                K2 = K2.dot(derived_g_by_y).dot(derived_y_by_x) # g'(w*x+b) * f'(w,x,b)
         else:
             K2 = np.array([[1]])
 
         chain = K2
-
-        cur_val = self.val
+        cur_val = self.output_val
 
         # g'(f(w,x,b))
         g_derivative = derivative_func(cur_val)
@@ -121,51 +113,57 @@ class Layer:
         # f'(w,x,b)
         f_derivative = K1
 
-
         # Delta Weight
-        delta_weight = (-1) * error_term * g_derivative * f_derivative * chain
+        delta_weight = learning_rate * (-1) * error_term * g_derivative * f_derivative * chain.T
 
-        # if not self.output_ind:
-        #     derivative = derivative * K3.T
+        print(delta_weight.shape)
 
-        if type(self.delta_weight) != type(None):
+        if type(self.delta_weight)!=type(None):
             self.delta_weight += delta_weight
         else:
             self.delta_weight = delta_weight
 
         # Delta Bias
-        delta_bias
+        delta_bias = learning_rate * (-1) * error_term * g_derivative * 1 * chain.T
 
+        if type(self.delta_bias) != type(None):
+            self.delta_bias += delta_bias
+        else:
+            self.delta_bias = delta_bias
 
+        return
 
-
-
-
-
-
-    def update_weights(self):
-        if type(self.delta_weight) != type(None):
-            self.output_weight.val += self.delta_weight
+    def update_weights_and_bias(self):
+        if type(self.delta_weight)!=type(None):
+            self.output_weight.val += self.delta_weight.T
             self.delta_weight = None
 
+        if type(self.delta_bias)!=type(None):
+            self.output_bias.val += self.delta_bias
+            self.delta_bias = None
+
+        return
 
 class Network:
     def __init__(self, input_layer, output_layer):
         self.input_layer = input_layer
         self.output_layer = output_layer
         self.learning_rate = 0.01
+        return
 
     def set_learning_rate(self, rate):
         self.learning_rate = rate
+        return
 
     def batch_forwarding(self):
         cur = self.input_layer
         while (cur.next_layer):
             cur.forwarding()
             cur = cur.next_layer
+        return
 
     def get_error_term(self, ground_truth_list):
-        error = self.output_layer.val - ground_truth_list
+        error = self.output_layer.input_val - ground_truth_list
         return error
 
     def batch_backwarding(self, error_term):
@@ -173,18 +171,21 @@ class Network:
         while (cur and cur.output_weight):
             cur.backwarding(error_term, self.learning_rate)
             cur = cur.next_layer
+        return
 
     def one_train(self, x, y):
         input_layer.pull_in(x)
         self.batch_forwarding()
         error_term = self.get_error_term(y)
         self.batch_backwarding(error_term)
+        return
 
     def batch_update_weights(self):
         cur = self.input_layer.next_layer
         while (cur and cur.output_weight):
-            cur.update_weights()
+            cur.update_weights_and_bias()
             cur = cur.next_layer
+        return
 
     def batch_train(self, X, Y, batch_size=20):
         i = 0
@@ -193,11 +194,12 @@ class Network:
             if i % batch_size == 0:
                 self.batch_update_weights()
         self.batch_update_weights()
+        return
 
     def predict(self, x):
         input_layer.pull_in(x)
         self.batch_forwarding()
-        return self.output_layer.val
+        return self.output_layer.input_val
 
 
 if __name__=="__main__":
